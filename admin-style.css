@@ -101,7 +101,7 @@ body {
   background: #eff6ff;
   color: #3b82f6;
 }
-/* ซ่อมจุดพังบรรทัด 106 จาก #fffbp1 เปลี่ยนเป็นสีเหลืองสว่างนวลตาแล้วครับ */
+/* แก้ไขจุดบกพร่องพิมพ์ผิดโค้ดสีรันพังเรียบร้อยครับ */
 .stat-card.borrowing .icon {
   background: #fef3c7;
   color: var(--warning);

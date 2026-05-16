@@ -1,12 +1,17 @@
+/* =========================================================
+   Sports Lending System - admin-script.js (Fixed ID Mismatch)
+========================================================= */
+
 import { initializeApp } from "https://www.gstatic.com/firebasejs/10.7.1/firebase-app.js";
 import {
   getDatabase,
   ref,
-  onValue,
+  set,
   update,
+  onValue,
 } from "https://www.gstatic.com/firebasejs/10.7.1/firebase-database.js";
 
-// คีย์โครงการ Firebase หลักของระบบข้อมูลยืมคืนพละ
+// คีย์โครงการ Firebase (สตรีมมิ่งเซ็ตอัพเรียบร้อย)
 const firebaseConfig = {
   apiKey: "AIzaSyDy5woHXjPdH7816Im7MloAlbLJIi4Bdk",
   authDomain: "bu-sports-lending.firebaseapp.com",
@@ -20,164 +25,203 @@ const firebaseConfig = {
 const app = initializeApp(firebaseConfig);
 const db = getDatabase(app);
 
-// โครงสร้างเมทาดาต้าสำหรับผูกคำนวณหน้าเว็บแอดมิน
-let EQUIP_META = {
-  football: { name: "ลูกฟุตบอล", emoji: "⚽", total: 5 },
-  volleyball: { name: "วอลเลย์บอล", emoji: "🏐", total: 5 },
-  basketball: { name: "บาสเกตบอล", emoji: "🏀", total: 5 },
-  pingpong: { name: "ปิงปอง (แพ็ค)", emoji: "🏓", total: 5 },
-  badminton: { name: "แบดมินตัน (ไม้)", emoji: "🏸", total: 5 },
-  tennis: { name: "เทนนิส", emoji: "🎾", total: 5 },
-};
+/* โครงสร้างข้อมูลอุปกรณ์หลักภายในระบบ */
+let EQUIP = [
+  { id: "football", name: "ลูกฟุตบอล", emoji: "⚽", total: 5, out: 0 },
+  { id: "volleyball", name: "วอลเลย์บอล", emoji: "🏐", total: 5, out: 0 },
+  { id: "basketball", name: "บาสเกตบอล", emoji: "🏀", total: 5, out: 0 },
+  { id: "pingpong", name: "ปิงปอง (แพ็ค)", emoji: "🏓", total: 5, out: 0 },
+  { id: "badminton", name: "แบดมินตัน (ไม้)", emoji: "🏸", total: 5, out: 0 },
+  { id: "tennis", name: "เทนนิส", emoji: "🎾", total: 5, out: 0 },
+];
 
-let currentOnlineOut = {};
-
-// ตัวตัดฟอร์แมตเวลา
-function fmtTime(dateString) {
+// ฟังก์ชันสำหรับแปลงรูปแบบเวลา
+function fmt(dateString) {
   if (!dateString) return "-";
+  const date = new Date(dateString);
   return (
-    new Date(dateString).toLocaleTimeString("th-TH", {
-      hour: "2-digit",
-      minute: "2-digit",
-    }) + " น."
+    date.toLocaleTimeString("th-TH", { hour: "2-digit", minute: "2-digit" }) +
+    " น."
   );
 }
 
-// 1. ตรวจจับและดึงสถิติจำนวนอุปกรณ์ที่มีการอัปเดตบนเบส
-function listenToEquipments() {
-  onValue(ref(db, "equipmentOut"), (snapshot) => {
-    const data = snapshot.val() || {};
-    currentOnlineOut = data;
-    renderEquipTable();
-    calculateGlobalStats();
+/* =========================================================
+   FIREBASE REALTIME SYNC (READ & AUTO PROGRESS)
+========================================================= */
+function listenToFirebaseData() {
+  let currentTotals = {};
+
+  // 1. ดักฟังข้อมูลการตั้งค่าสต็อกคลังอุปกรณ์จากแอดมิน
+  onValue(ref(db, "equipment"), (snapshot) => {
+    const data = snapshot.val();
+    if (data) {
+      EQUIP.forEach((item) => {
+        if (data[item.id]) {
+          currentTotals[item.id] =
+            data[item.id].total !== undefined
+              ? parseInt(data[item.id].total)
+              : item.total;
+        }
+      });
+    } else {
+      initDefaultEquipment();
+    }
+    // ส่งยอดไปคำนวณซ้อนร่วมกับรายการค้างยืมของนักศึกษา
+    fetchAndSyncUsersData(currentTotals);
   });
 }
 
-// 2. ดักดึงรายชื่อเด็กทุกคนที่ยังไม่ยอมคืนของส่งโรงพละ
-function listenToActiveUsers() {
+// 2. ดักฟังรายการของผู้ใช้งานทุกคนและบวกยอดคำนวณผู้ค้างยืมแบบเรียลไทม์
+function fetchAndSyncUsersData(currentTotals) {
   onValue(ref(db, "users"), (snapshot) => {
     const usersData = snapshot.val();
-    const container = document.getElementById("admin-user-list");
-    if (!container) return;
 
-    if (!usersData) {
-      container.innerHTML = `<div class="empty-state">ไม่มีผู้ใช้งานที่ค้างยืมอุปกรณ์</div>`;
-      return;
-    }
+    // ชี้เป้าไปที่คอนเทนเนอร์แสดงรายชื่อนักศึกษาขวามือใน HTML
+    const pendingContainer = document.getElementById("admin-user-list");
 
-    let htmlContent = "";
-    const now = new Date();
-
-    Object.keys(usersData).forEach((userId) => {
-      const user = usersData[userId];
-      if (!user.borrows) return;
-
-      const activeBorrows = user.borrows.filter((b) => b.active === true);
-      if (activeBorrows.length === 0) return;
-
-      const profile = user.profile || { name: "ไม่ทราบชื่อ", faculty: "-" };
-
-      htmlContent += `
-        <div class="user-card">
-          <div class="user-card-header">
-            <div>
-              <b>${profile.name}</b>
-              <div style="font-size:0.75rem; color:var(--text-muted); margin-top:2px;">${profile.faculty}</div>
-            </div>
-            <span class="uid-tag">${userId}</span>
-          </div>
-          <div class="item-badge-row">
-            ${activeBorrows
-              .map((b) => {
-                const isOverdue = new Date(b.returnBy) < now;
-                return `
-                <div class="item-sub-badge ${isOverdue ? "overdue" : ""}">
-                  ${isOverdue ? "⚠️ " : ""}${b.emoji} ${b.name} (ส่งคืนก่อน: ${fmtTime(b.returnBy)})
-                </div>
-              `;
-              })
-              .join("")}
-          </div>
-        </div>
-      `;
+    // เคลียร์ยอดการยืมเก่าออกให้พร้อมก่อนประมวลผลลัพธ์รอบใหม่
+    EQUIP.forEach((item) => {
+      item.total =
+        currentTotals[item.id] !== undefined
+          ? currentTotals[item.id]
+          : item.total;
+      item.out = 0;
     });
 
-    container.innerHTML =
-      htmlContent ||
-      `<div class="empty-state">ไม่มีผู้ใช้งานที่ค้างยืมอุปกรณ์</div>`;
+    let html = "";
+    const now = new Date();
+
+    if (usersData) {
+      Object.keys(usersData).forEach((userId) => {
+        const user = usersData[userId];
+        if (user.borrows && user.borrows.length > 0) {
+          // คัดเฉพาะรายการที่นักเรียนกดยืมและยังค้างส่งคืน (active === true)
+          const activeBorrows = user.borrows.filter((b) => b.active);
+
+          activeBorrows.forEach((borrow) => {
+            // บวกยอดสะสมสถานะกำลังยืมเข้าสู่โหนดของอุปกรณ์ชิ้นนั้นๆ
+            const targetEquip = EQUIP.find((e) => e.id === borrow.id);
+            if (targetEquip) {
+              targetEquip.out++;
+            }
+
+            // ตรวจสอบสถานะว่าคืนอุปกรณ์เกินกำหนดเวลาหรือไม่
+            const isOverdue = new Date(borrow.returnBy) < now;
+
+            // รวบรวมการ์ดผู้ยืมเข้าสู่โครงสร้างที่สัมพันธ์กับดีไซน์ CSS ใหม่
+            html += `
+              <div class="user-card">
+                <div class="user-card-header">
+                  <b>${user.profile?.name || "ไม่ระบุชื่อ"}</b>
+                  <span class="uid-tag">${userId}</span>
+                </div>
+                <div style="font-size: 0.85rem; color: var(--text-muted); margin-bottom: 0.25rem;">
+                  คณะ: ${user.profile?.faculty || "-"}
+                </div>
+                <div class="item-badge-row">
+                  <span class="item-sub-badge ${isOverdue ? "overdue" : ""}">
+                    ${borrow.emoji || "📦"} ${borrow.name} (คืนก่อน: ${fmt(borrow.returnBy)})
+                  </span>
+                </div>
+              </div>
+            `;
+          });
+        }
+      });
+    }
+
+    if (pendingContainer) {
+      pendingContainer.innerHTML =
+        html ||
+        `
+        <div class="empty-state">ไม่มีผู้ใช้งานที่ค้างยืมอุปกรณ์</div>
+      `;
+    }
+
+    // อัปเดตสถิติตัวเลขสรุปด้านบนและอัปเดตข้อมูลตารางจัดการสินค้า
+    updateStats();
+    renderEquipTable();
   });
 }
 
-// วาด UI ตารางอุปกรณ์
+function initDefaultEquipment() {
+  const initData = {};
+  EQUIP.forEach((item) => {
+    initData[item.id] = { total: item.total, out: 0 };
+  });
+  set(ref(db, "equipment"), initData);
+}
+
+/* =========================================================
+   UI RENDER CONTROL (เชื่อมต่อไอดีเข้าหา HTML ล่าสุด)
+========================================================= */
+function updateStats() {
+  let sumTotal = 0;
+  let sumOut = 0;
+
+  EQUIP.forEach((e) => {
+    sumTotal += e.total;
+    sumOut += e.out;
+  });
+
+  const sumAvail = Math.max(0, sumTotal - sumOut);
+
+  // แมตช์กับไอดีของกล่องสี่เหลี่ยมด้านบนในไฟล์ HTML เรียบร้อยแล้ว (adm-total, adm-out, adm-avail)
+  if (document.getElementById("adm-total"))
+    document.getElementById("adm-total").textContent = sumTotal;
+  if (document.getElementById("adm-out"))
+    document.getElementById("adm-out").textContent = sumOut;
+  if (document.getElementById("adm-avail"))
+    document.getElementById("adm-avail").textContent = sumAvail;
+}
+
 function renderEquipTable() {
-  const tbody = document.getElementById("admin-equip-table");
-  if (!tbody) return;
+  // แมตช์แท็ก tbody ประจำตารางของแอดมิน (admin-equip-table)
+  const tableBody = document.getElementById("admin-equip-table");
+  if (!tableBody) return;
 
-  tbody.innerHTML = Object.keys(EQUIP_META)
-    .map((key) => {
-      const meta = EQUIP_META[key];
-      const out = currentOnlineOut[key] || 0;
-      const avail = Math.max(0, meta.total - out);
-
-      return `
+  tableBody.innerHTML = EQUIP.map((e) => {
+    const avail = Math.max(0, e.total - e.out);
+    return `
       <tr>
-        <td><span style="font-size:1.2rem; margin-right:0.4rem;">${meta.emoji}</span> <b>${meta.name}</b></td>
-        <td><strong>${meta.total}</strong> ชิ้น</td>
-        <td style="color:var(--warning); font-weight:600;">${out}</td>
-        <td style="color:var(--success); font-weight:600;">${avail}</td>
+        <td>
+          <div style="display: flex; align-items: center; gap: 0.75rem; font-weight: 500;">
+            <span style="font-size: 1.2rem;">${e.emoji}</span> ${e.name}
+          </div>
+        </td>
+        <td><b>${e.total} ชิ้น</b></td>
+        <td><span style="color: ${e.out > 0 ? "var(--warning)" : "var(--text-muted)"}; font-weight: bold;">${e.out}</span></td>
+        <td><span style="color: var(--success); font-weight: bold;">${avail}</span></td>
         <td>
           <div class="stock-ctrl">
-            <button class="btn-stock" onclick="window.changeStockTotal('${key}', -1)">-</button>
-            <button class="btn-stock" onclick="window.changeStockTotal('${key}', 1)">+</button>
+            <button class="btn-stock" onclick="window.changeStock('${e.id}', -1)">-</button>
+            <button class="btn-stock" onclick="window.changeStock('${e.id}', 1)">+</button>
           </div>
         </td>
       </tr>
     `;
-    })
-    .join("");
+  }).join("");
 }
 
-// ยัดสถิติคำนวณลงการ์ดด้านบน
-function calculateGlobalStats() {
-  let totalStock = 0;
-  let totalOut = 0;
+/* =========================================================
+   ADMIN ACTIONS (ปุ่มกดปรับเปลี่ยนและเซฟข้อมูลคลังสต็อกสากล)
+========================================================= */
+window.changeStock = function (id, amount) {
+  const item = EQUIP.find((e) => e.id === id);
+  if (!item) return;
 
-  Object.keys(EQUIP_META).forEach((key) => {
-    totalStock += EQUIP_META[key].total;
-    totalOut += currentOnlineOut[key] || 0;
-  });
-
-  const totalAvail = Math.max(0, totalStock - totalOut);
-
-  if (document.getElementById("adm-total"))
-    document.getElementById("adm-total").textContent = totalStock;
-  if (document.getElementById("adm-out"))
-    document.getElementById("adm-out").textContent = totalOut;
-  if (document.getElementById("adm-avail"))
-    document.getElementById("adm-avail").textContent = totalAvail;
-}
-
-// สั่งปรับแต่งจำนวนไอเทมทั้งหมดในสต็อกส่วนกลาง
-window.changeStockTotal = function (key, val) {
-  const target = EQUIP_META[key];
-  if (!target) return;
-
-  const currentOut = currentOnlineOut[key] || 0;
-  if (target.total + val < currentOut) {
+  const newTotal = item.total + amount;
+  if (newTotal < item.out || newTotal < 0) {
     alert(
-      `ไม่สามารถลดสต็อกลงได้ เนื่องจากนักศึกษายืมค้างอยู่จำนวน ${currentOut} ชิ้น`,
+      "❌ ไม่สามารถปรับสต็อกรวมให้ต่ำกว่าจำนวนที่เด็กยืมใช้งานอยู่ได้ครับ!",
     );
     return;
   }
 
-  if (target.total + val < 0) return;
-
-  target.total += val;
-  renderEquipTable();
-  calculateGlobalStats();
+  // ส่งข้อมูลปรับสต็อกและสะท้อนค่าจำนวนยืมขึ้นสู่ระบบคลาวด์ล็อกค่าไว้อัตโนมัติ
+  update(ref(db, `equipment/${id}`), { total: newTotal, out: item.out });
 };
 
 window.addEventListener("DOMContentLoaded", () => {
-  listenToEquipments();
-  listenToActiveUsers();
+  listenToFirebaseData();
 });
