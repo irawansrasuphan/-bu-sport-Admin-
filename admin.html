@@ -1,0 +1,80 @@
+<!doctype html>
+<html lang="th">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Sports Lending System — Admin Dashboard</title>
+    <link
+      rel="stylesheet"
+      href="https://cdn.jsdelivr.net/npm/@tabler/icons-webfont@2.44.0/tabler-icons.min.css"
+    />
+    <link rel="stylesheet" href="admin-style.css" />
+  </head>
+  <body>
+    <div class="admin-container">
+      <header class="admin-header">
+        <div class="brand">
+          <i class="ti ti-shield-lock"></i>
+          <div>
+            <h1>Sports Lending (Admin)</h1>
+            <p>ระบบจัดการอุปกรณ์และตรวจสอบสถานะการยืม-คืน</p>
+          </div>
+        </div>
+        <div class="admin-badge">เจ้าหน้าที่พละศึกษา</div>
+      </header>
+
+      <div class="stat-grid">
+        <div class="stat-card total">
+          <div class="icon"><i class="ti ti-package"></i></div>
+          <div class="info">
+            <span class="num" id="adm-total">0</span>
+            <span class="lbl">อุปกรณ์ทั้งหมดในคลัง</span>
+          </div>
+        </div>
+        <div class="stat-card borrowing">
+          <div class="icon"><i class="ti ti-hand-grab"></i></div>
+          <div class="info">
+            <span class="num" id="adm-out">0</span>
+            <span class="lbl">กำลังถูกยืมอยู่</span>
+          </div>
+        </div>
+        <div class="stat-card available">
+          <div class="icon"><i class="ti ti-circle-check"></i></div>
+          <div class="info">
+            <span class="num" id="adm-avail">0</span>
+            <span class="lbl">พร้อมใช้งาน</span>
+          </div>
+        </div>
+      </div>
+
+      <div class="main-content-grid">
+        <section class="panel style-equip">
+          <h2><i class="ti ti-edit"></i> จัดการจำนวนสต็อกอุปกรณ์</h2>
+          <div class="table-responsive">
+            <table>
+              <thead>
+                <tr>
+                  <th>อุปกรณ์</th>
+                  <th>จำนวนทั้งหมด (ชิ้น)</th>
+                  <th>กำลังถูกยืม</th>
+                  <th>คงเหลือ</th>
+                  <th>ปรับแต่งสต็อก</th>
+                </tr>
+              </thead>
+              <tbody id="admin-equip-table"></tbody>
+            </table>
+          </div>
+        </section>
+
+        <section class="panel style-users">
+          <h2><i class="ti ti-users"></i> รายการผู้ใช้งานที่ค้างส่งคืน</h2>
+          <div class="user-borrow-list" id="admin-user-list">
+            <div class="empty-state">ไม่มีผู้ใช้งานที่ค้างยืมอุปกรณ์</div>
+          </div>
+        </section>
+      </div>
+    </div>
+
+    <script type="module" src="admin-script.js"></script>
+  </body>
+</html>
